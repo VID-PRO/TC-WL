@@ -1379,6 +1379,10 @@ static void ltcLoop() {
                 uint8_t ff = (elapsed * ltc.fps()) / 1000;
                 if (ff >= ltc.fps()) ff = ltc.fps() - 1;
                 ltc.setTime(rtcHH, rtcMM, rtcSS, ff);
+            } else if (bleTimecodeConnected()) {
+                // When synced via BLE, don't tick — the notification callback
+                // sets the authoritative time.  Drain the frame counter to
+                // prevent ISR overflow; the LTC output repeats the last frame.
             } else
 #endif
             {
