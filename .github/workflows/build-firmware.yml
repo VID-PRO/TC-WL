@@ -50,6 +50,14 @@ jobs:
       - name: Build ${{ matrix.env }}
         run: pio run -e ${{ matrix.env }}
 
+      - name: Merge firmware into single binary
+        run: |
+          esptool.py --chip ${{ matrix.env == 'TC-WL-HDMI' && 'esp32p4' || 'esp32c3' }} merge_bin \
+            --output .pio/build/${{ matrix.env }}/merged.bin \
+            0x0 .pio/build/${{ matrix.env }}/bootloader.bin \
+            0x8000 .pio/build/${{ matrix.env }}/partitions.bin \
+            0x10000 .pio/build/${{ matrix.env }}/firmware.bin
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -58,6 +66,7 @@ jobs:
             .pio/build/${{ matrix.env }}/firmware.bin
             .pio/build/${{ matrix.env }}/bootloader.bin
             .pio/build/${{ matrix.env }}/partitions.bin
+            .pio/build/${{ matrix.env }}/merged.bin
 
   release:
     if: github.event_name == 'release'
@@ -78,6 +87,7 @@ jobs:
             cp "artifacts/firmware-$env/firmware.bin"    "upload/${env}_firmware.bin"
             cp "artifacts/firmware-$env/bootloader.bin"  "upload/${env}_bootloader.bin"
             cp "artifacts/firmware-$env/partitions.bin"  "upload/${env}_partitions.bin"
+            cp "artifacts/firmware-$env/merged.bin"      "upload/${env}_merged.bin"
           done
           gh release upload "${{ github.ref_name }}" upload/* --clobber
         env:
@@ -93,9 +103,15 @@ jobs:
           ## Flashing
 
           Firmware binaries are attached to the release as
-          `TC-WL-{HDMI,LTC,CLAP}_{firmware,bootloader,partitions}.bin`.
+          `TC-WL-{HDMI,LTC,CLAP}_{firmware,bootloader,partitions,merged}.bin`.
+          Use the **merged** binary for a single-command flash, or flash the three parts individually.
 
           ### TC-WL-HDMI (ESP32-P4-WIFI6 — HDMI receiver + BLE server)
+          **Merged (single file):**
+          ```
+          esptool.py --chip esp32p4 --port /dev/ttyUSB0 write_flash 0x0 TC-WL-HDMI_merged.bin
+          ```
+          **Individual:**
           ```
           esptool.py --chip esp32p4 --port /dev/ttyUSB0 write_flash \
             0x0 TC-WL-HDMI_bootloader.bin \
@@ -106,6 +122,11 @@ jobs:
           ### TC-WL-LTC (ESP32-C3 — dual-role master/slave)
           The app connects to the master via BLE and displays timecode;
           use **Settings → Device Mode** to switch between Slave and Master.
+          **Merged (single file):**
+          ```
+          esptool.py --chip esp32c3 --port /dev/ttyUSB0 write_flash 0x0 TC-WL-LTC_merged.bin
+          ```
+          **Individual:**
           ```
           esptool.py --chip esp32c3 --port /dev/ttyUSB0 write_flash \
             0x0 TC-WL-LTC_bootloader.bin \
@@ -114,6 +135,11 @@ jobs:
           ```
 
           ### TC-WL-CLAP (ESP32-C3 — BLE client, LED matrix only)
+          **Merged (single file):**
+          ```
+          esptool.py --chip esp32c3 --port /dev/ttyUSB0 write_flash 0x0 TC-WL-CLAP_merged.bin
+          ```
+          **Individual:**
           ```
           esptool.py --chip esp32c3 --port /dev/ttyUSB0 write_flash \
             0x0 TC-WL-CLAP_bootloader.bin \
