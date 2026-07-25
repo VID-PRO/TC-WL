@@ -104,7 +104,10 @@ void OledMenu::draw() {
 
         char buf[22];
         const char *val = item.getValue ? item.getValue() : "";
-        snprintf(buf, sizeof(buf), "%-11s%6s", item.label, val);
+        char valTrunc[7];
+        strncpy(valTrunc, val, sizeof(valTrunc) - 1);
+        valTrunc[sizeof(valTrunc) - 1] = '\0';
+        snprintf(buf, sizeof(buf), "%-11s%6s", item.label, valTrunc);
 
         int x = 12;
         d.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -115,7 +118,7 @@ void OledMenu::draw() {
             if (maxChars < 1) maxChars = 1;
             int labelChars = labelLen;
             if (labelChars > maxChars) labelChars = maxChars;
-            snprintf(buf, sizeof(buf), "%-*s%6s", maxChars, item.label, val);
+            snprintf(buf, sizeof(buf), "%-*s%6s", maxChars, item.label, valTrunc);
         }
         d.setCursor(x, y);
         d.print(buf);

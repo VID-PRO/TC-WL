@@ -60,6 +60,7 @@ void bleTimecodeStartScan();
 bool bleTimecodeScanDone();
 uint8_t bleTimecodeScanResults(BleScanResult *results, uint8_t maxResults);
 void bleTimecodeSelect(const char *address);
+void bleTimecodeDisconnect();
 const char *bleTimecodeSelectedAddress();
 const char *bleTimecodeConnectedAddress();
 const char *bleTimecodeConnectedName();

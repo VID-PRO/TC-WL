@@ -93,6 +93,7 @@ enum TcEditField { TC_DD, TC_HH, TC_MM, TC_SS, TC_FF };
 static bool _editingTc = false;
 static TcEditField _editField = TC_DD;
 static uint8_t _editVals[5] = {0, 0, 0, 0, 0};
+static uint8_t _menuOpenBtn = 0;
 
 // Master selection state
 static bool _selectingMaster = false;
@@ -430,8 +431,11 @@ void runReverseEngineerDump() {
 // Slave-specific: BLE timecode callback
 // ---------------------------------------------------------------------------
 static void onBleTimecode(uint8_t dd, uint8_t hh, uint8_t mm, uint8_t ss, uint8_t ff, uint8_t fps) {
-    if (fps != ltc.fps()) {
-        ltc.setFps(fps, ltc.dropFrame());
+    // Keep local FPS; convert incoming frame to local frame range
+    uint8_t localFps = ltc.fps();
+    if (fps != localFps && fps > 0 && localFps > 0) {
+        ff = ((uint16_t)ff * localFps + fps / 2) / fps;
+        if (ff >= localFps) ff = localFps - 1;
     }
     ltc.setTime(hh, mm, ss, ff);
     ltc.setDd(dd);
@@ -536,7 +540,11 @@ static void menuSelectMaster() {
     _menuScanCount = 0;
     _menuScanCursor = 0;
     _menuScanScroll = 0;
-    bleTimecodeStartScan();
+    if (bleTimecodeConnected()) {
+        // Show connected master with Disconnect option
+    } else {
+        bleTimecodeStartScan();
+    }
 }
 
 static void handleTcEditorInput() {
@@ -1272,6 +1280,7 @@ static void ltcLoop() {
     } else if (!menu.active() && !_selectingMaster) {
         if (btnUp.pressed() || btnDown.pressed() || btnOk.pressed() || btnCancel.pressed()) {
             menu.show();
+            _menuOpenBtn = btnUp.pressed() ? 1 : btnDown.pressed() ? 2 : btnOk.pressed() ? 3 : 4;
         }
     }
 
@@ -1280,9 +1289,11 @@ static void ltcLoop() {
     } else if (menu.active()) {
         if (btnUp.pressed())      { menu.up(); _delayedRecycle = false; }
         if (btnDown.pressed())    { menu.down(); _delayedRecycle = false; }
-        if (btnOk.released())     menu.ok(btnOk.heldFor(2000));
-        if (btnCancel.released()) { menu.cancel(); oled.forceRedraw(); _delayedRecycle = false; }
+        if (btnOk.released() && _menuOpenBtn != 3)     menu.ok(btnOk.heldFor(2000));
+        if (btnCancel.released() && _menuOpenBtn != 4) { menu.cancel(); oled.forceRedraw(); _delayedRecycle = false; }
         if (!menu.tick())         { oled.forceRedraw(); _delayedRecycle = false; }
+        if (!btnUp.held() && !btnDown.held() && !btnOk.held() && !btnCancel.held())
+            _menuOpenBtn = 0;
     }
     if (_delayedRecycle && !menu.active()) {
         _delayedRecycle = false;
@@ -1294,10 +1305,42 @@ static void ltcLoop() {
         _rebootTimer = millis();
     }
 
-    // ── Master selection mode ──
+    // ── Master selection / disconnect mode ──
     if (_selectingMaster) {
         auto &d = oled.display();
-        if (bleTimecodeScanDone()) {
+        // Connected but no scan started → show disconnect screen
+        if (bleTimecodeConnected() && !_menuScanCount && !bleTimecodeScanDone()) {
+            d.clearDisplay();
+            d.setTextSize(1);
+            d.setTextColor(WHITE);
+            d.setCursor(0, 0);
+            d.print("Connected:");
+            const char *name = bleTimecodeConnectedName();
+            const char *addr = bleTimecodeConnectedAddress();
+            if (name && name[0]) {
+                d.setCursor(0, 16);
+                d.print(name);
+            } else if (addr && addr[0]) {
+                d.setCursor(0, 16);
+                d.print(addr);
+            }
+            d.setCursor(0, 48);
+            d.print(_menuScanCursor == 0 ? "> " : "  ");
+            d.print("[Disconnect]");
+            d.setCursor(0, 56);
+            d.print(_menuScanCursor == 1 ? "> " : "  ");
+            d.print("[Back]");
+            d.display();
+            if (btnUp.pressed() && _menuScanCursor > 0) _menuScanCursor--;
+            if (btnDown.pressed() && _menuScanCursor < 1) _menuScanCursor++;
+            if (btnOk.released()) {
+                if (_menuScanCursor == 0) {
+                    bleTimecodeDisconnect();
+                }
+                _selectingMaster = false;
+                oled.forceRedraw();
+            }
+        } else if (bleTimecodeScanDone()) {
             if (_menuScanCount == 0) {
                 _menuScanCount = bleTimecodeScanResults(_menuScanResults, 16);
             }
@@ -1333,6 +1376,30 @@ static void ltcLoop() {
                     _selectingMaster = false;
                     oled.forceRedraw();
                 }
+            } else {
+                d.clearDisplay();
+                d.setTextSize(1);
+                d.setTextColor(WHITE);
+                d.setCursor(0, 0);
+                d.print("> [Retry]");
+                d.setCursor(0, 16);
+                d.print("  [Back]");
+                d.display();
+                if (btnOk.released()) {
+                    if (_menuScanCursor == 0) {
+                        // Retry
+                        _selectingMaster = false;
+                        _menuScanCursor = 0;
+                        _menuScanScroll = 0;
+                        menuSelectMaster();
+                        return;
+                    } else {
+                        _selectingMaster = false;
+                        oled.forceRedraw();
+                    }
+                }
+                if (btnUp.pressed() && _menuScanCursor > 0) _menuScanCursor--;
+                if (btnDown.pressed() && _menuScanCursor < 1) _menuScanCursor++;
             }
         } else {
             d.clearDisplay();
