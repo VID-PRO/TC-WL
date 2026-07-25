@@ -648,7 +648,7 @@ void bleTimecodeInit() {
     blePrefs.begin(NVS_NS, false);
     bleLtcRole = blePrefs.getUChar("role", TCWL_MODE_LTC);
     String savedName = blePrefs.isKey("ltc_name") ? blePrefs.getString("ltc_name", "") : "TC-WL-LTC";
-    String savedAddr = blePrefs.isKey("hdmi") ? blePrefs.getString("hdmi_addr", "") : "";
+    String savedAddr = blePrefs.isKey("hdmi_addr") ? blePrefs.getString("hdmi_addr", "") : "";
     blePrefs.end();
 
     strncpy(ltcServerName, savedName.c_str(), sizeof(ltcServerName) - 1);
