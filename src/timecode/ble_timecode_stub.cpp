@@ -34,8 +34,10 @@ void bleTimecodeSetConfigCallback(BleConfigCb) {}
 void bleTimecodePoll() {}
 bool bleTimecodeConnected() { return false; }
 uint8_t bleTimecodeScan(BleScanResult *, uint8_t) { return 0; }
-void bleTimecodeSelect(const char *) {}
+void bleTimecodeSelect(const char *, const char *) {}
 void bleTimecodeDisconnect() {}
+void bleTimecodeSetMenuActive(bool) {}
+bool bleTimecodeIsMenuActive() { return false; }
 const char *bleTimecodeSelectedAddress() { return ""; }
 const char *bleTimecodeConnectedAddress() { return ""; }
 const char *bleTimecodeConnectedName() { return ""; }

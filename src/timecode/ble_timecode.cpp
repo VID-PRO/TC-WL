@@ -428,8 +428,10 @@ void bleTimecodeSetCallback(BleTimecodeCb) {}
 void bleTimecodePoll() {}
 bool bleTimecodeConnected() { return false; }
 uint8_t bleTimecodeScan(BleScanResult *, uint8_t) { return 0; }
-void bleTimecodeSelect(const char *) {}
+void bleTimecodeSelect(const char *, const char *) {}
 void bleTimecodeDisconnect() {}
+void bleTimecodeSetMenuActive(bool) {}
+bool bleTimecodeIsMenuActive() { return false; }
 const char *bleTimecodeSelectedAddress() { return ""; }
 const char *bleTimecodeConnectedAddress() { return ""; }
 const char *bleTimecodeConnectedName() { return ""; }
@@ -596,6 +598,7 @@ static BleTimecodeCb timecodeCb = nullptr;
 static bool ltcClientConnected = false;
 static bool scanDone = false;
 static unsigned long lastScan = 0;
+static bool _bleMenuActive = false;
 static char selectedAddr[18] = "";
 static char connectedAddr[18] = "";
 static char connectedName[33] = "";
@@ -665,8 +668,8 @@ static bool tryConnectAddr(const char *addrStr, const char *nameStr) {
         strncpy(connectedName, nameStr, sizeof(connectedName) - 1);
         connectedName[sizeof(connectedName) - 1] = '\0';
     } else {
-        snprintf(connectedName, sizeof(connectedName),
-                 "TC-WL-HDMI-%s", connectedAddr + 9);
+        strncpy(connectedName, addrStr, sizeof(connectedName) - 1);
+        connectedName[sizeof(connectedName) - 1] = '\0';
     }
 
     BLERemoteCharacteristic *nameChar = svc->getCharacteristic(bleTimecodeNameCharUUID);
@@ -779,16 +782,37 @@ static void ltcScanCompleteCb(BLEScanResults scanResults) {
             strncpy(pendingName, dn, sizeof(pendingName) - 1);
             pendingName[sizeof(pendingName) - 1] = '\0';
         } else {
+            // Manually parse payload for short/complete name types
             pendingName[0] = '\0';
+            uint8_t *payload = dev.getPayload();
+            size_t plen = dev.getPayloadLength();
+            for (size_t off = 0; off + 1 < plen; ) {
+                uint8_t len = payload[off];
+                if (len == 0 || off + len >= plen) break;
+                uint8_t type = payload[off + 1];
+                if (type == 0x08 || type == 0x09) {
+                    size_t copylen = len - 1;
+                    if (copylen > sizeof(pendingName) - 1) copylen = sizeof(pendingName) - 1;
+                    memcpy(pendingName, payload + off + 2, copylen);
+                    pendingName[copylen] = '\0';
+                    break;
+                }
+                off += len + 1;
+            }
         }
         pendingConnect = true;
         break;
     }
 }
 
+void bleTimecodeSetMenuActive(bool active) {
+    _bleMenuActive = active;
+}
+bool bleTimecodeIsMenuActive() { return _bleMenuActive; }
+
 void bleTimecodePoll() {
     if (bleLtcRole != TCWL_MODE_LTC) return;
-    if (ltcClientConnected || scanDone || _scanAsyncActive) return;
+    if (ltcClientConnected || scanDone || _scanAsyncActive || _bleMenuActive) return;
 
     if (pendingConnect) {
         pendingConnect = false;
@@ -944,7 +968,7 @@ uint8_t bleTimecodeScanResults(BleScanResult *results, uint8_t maxResults) {
     return n;
 }
 
-void bleTimecodeSelect(const char *address) {
+void bleTimecodeSelect(const char *address, const char *name) {
     if (bleLtcRole != TCWL_MODE_LTC) return;
     strncpy(selectedAddr, address, sizeof(selectedAddr) - 1);
     selectedAddr[sizeof(selectedAddr) - 1] = '\0';
@@ -961,6 +985,8 @@ void bleTimecodeSelect(const char *address) {
     }
     ltcClientConnected = false;
     lastScan = 0;
+
+    tryConnectAddr(selectedAddr, name);
 }
 
 void bleTimecodeDisconnect() {

@@ -431,11 +431,10 @@ void runReverseEngineerDump() {
 // Slave-specific: BLE timecode callback
 // ---------------------------------------------------------------------------
 static void onBleTimecode(uint8_t dd, uint8_t hh, uint8_t mm, uint8_t ss, uint8_t ff, uint8_t fps) {
-    // Keep local FPS; convert incoming frame to local frame range
-    uint8_t localFps = ltc.fps();
-    if (fps != localFps && fps > 0 && localFps > 0) {
-        ff = ((uint16_t)ff * localFps + fps / 2) / fps;
-        if (ff >= localFps) ff = localFps - 1;
+    // Sync FPS from master unless the menu is active (user is changing it).
+    if (!bleTimecodeIsMenuActive() && fps != ltc.fps()) {
+        ltc.setFps(fps, ltc.dropFrame());
+        framePollMs = 1000 / fps;
     }
     ltc.setTime(hh, mm, ss, ff);
     ltc.setDd(dd);
@@ -534,6 +533,10 @@ static void menuSetTc() {
     _editVals[4] = ltc.ff();
 }
 
+static const char* menuGetMaster() {
+    return bleTimecodeConnected() ? "CON" : "---";
+}
+
 static void menuSelectMaster() {
     menu.hide();
     _selectingMaster = true;
@@ -545,6 +548,9 @@ static void menuSelectMaster() {
     } else {
         bleTimecodeStartScan();
     }
+    // Consume the btnOk release that triggered this callback so the
+    // _selectingMaster overlay doesn't see a stale release event.
+    btnOk.read();
 }
 
 static void handleTcEditorInput() {
@@ -580,7 +586,7 @@ static void handleTcEditorInput() {
 #if TCWL_LTC
 static void menuBuildItems() {
     menu.clear();
-    menu.addItem("Master",    nullptr,       menuSelectMaster);
+    menu.addItem("Master",    menuGetMaster, menuSelectMaster);
     menu.addItem("FPS",       menuGetFps,    menuCycleFps);
     menu.addItem("DropFr",    menuGetDf,     menuToggleDf);
     menu.addItem("FPS Mode",  menuGetAutoFps,menuToggleAutoFps);
@@ -1275,6 +1281,15 @@ static void ltcLoop() {
     btnOk.read();
     btnCancel.read();
 
+    // Track menu active state to pause BLE auto-connect while browsing
+    {
+        static bool _prevMenuActive = false;
+        if (menu.active() != _prevMenuActive) {
+            _prevMenuActive = menu.active();
+            bleTimecodeSetMenuActive(menu.active());
+        }
+    }
+
     if (_editingTc) {
         handleTcEditorInput();
     } else if (!menu.active() && !_selectingMaster) {
@@ -1308,8 +1323,8 @@ static void ltcLoop() {
     // ── Master selection / disconnect mode ──
     if (_selectingMaster) {
         auto &d = oled.display();
-        // Connected but no scan started → show disconnect screen
-        if (bleTimecodeConnected() && !_menuScanCount && !bleTimecodeScanDone()) {
+        // Connected while no fresh scan data yet → show disconnect screen
+        if (bleTimecodeConnected() && !_menuScanCount) {
             d.clearDisplay();
             d.setTextSize(1);
             d.setTextColor(WHITE);
@@ -1371,7 +1386,7 @@ static void ltcLoop() {
                 }
                 if (btnOk.released()) {
                     if (_menuScanCursor < _menuScanCount) {
-                        bleTimecodeSelect(_menuScanResults[_menuScanCursor].address);
+                        bleTimecodeSelect(_menuScanResults[_menuScanCursor].address, _menuScanResults[_menuScanCursor].name);
                     }
                     _selectingMaster = false;
                     oled.forceRedraw();
