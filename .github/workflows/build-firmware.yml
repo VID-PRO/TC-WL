@@ -52,7 +52,8 @@ jobs:
 
       - name: Merge firmware into single binary
         run: |
-          esptool.py --chip ${{ matrix.env == 'TC-WL-HDMI' && 'esp32p4' || 'esp32c3' }} merge_bin \
+          pip install esptool
+          python -m esptool --chip ${{ matrix.env == 'TC-WL-HDMI' && 'esp32p4' || 'esp32c3' }} merge_bin \
             --output .pio/build/${{ matrix.env }}/merged.bin \
             0x0 .pio/build/${{ matrix.env }}/bootloader.bin \
             0x8000 .pio/build/${{ matrix.env }}/partitions.bin \
