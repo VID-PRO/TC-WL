@@ -560,6 +560,12 @@ static bool pendingConnect = false;
 static char pendingAddr[18] = "";
 static char pendingName[33] = "";
 
+// Scan results for the OLED master-selection menu
+static BleScanResult _scanResults[16];
+static uint8_t _scanResultCount = 0;
+static bool _scanAsyncDone = false;
+static bool _scanAsyncActive = false;
+
 class LtcClientCallbacks : public BLEClientCallbacks {
     void onConnect(BLEClient *) override {
         ltcClientConnected = true;
@@ -703,6 +709,10 @@ void bleTimecodeSetCallback(BleTimecodeCb cb) {
 
 static void ltcScanCompleteCb(BLEScanResults scanResults) {
     scanDone = false;
+    // Only auto-connect to a previously-paired address.  Without a saved
+    // address the user must select a master from the OLED menu.
+    if (!selectedAddr[0]) return;
+
     for (int i = 0; i < scanResults.getCount(); i++) {
         BLEAdvertisedDevice dev = scanResults.getDevice(i);
         if (!dev.haveServiceUUID() || !dev.isAdvertisingService(bleTimecodeServiceUUID))
@@ -716,7 +726,7 @@ static void ltcScanCompleteCb(BLEScanResults scanResults) {
                  addr.getNative()[3], addr.getNative()[2],
                  addr.getNative()[1], addr.getNative()[0]);
 
-        if (selectedAddr[0] && strcmp(addrStr, selectedAddr) != 0) continue;
+        if (strcmp(addrStr, selectedAddr) != 0) continue;
 
         strncpy(pendingAddr, addrStr, sizeof(pendingAddr) - 1);
         pendingAddr[sizeof(pendingAddr) - 1] = '\0';
@@ -787,18 +797,94 @@ uint8_t bleTimecodeScan(BleScanResult *results, uint8_t maxResults) {
                  addr.getNative()[3], addr.getNative()[2],
                  addr.getNative()[1], addr.getNative()[0]);
 
-        const char *dn = dev.getName().c_str();
-        if (dn && dn[0]) {
-            strncpy(results[count].name, dn, sizeof(results[count].name) - 1);
+        {
+            String nameStr = dev.getName();
+            if (nameStr.length() == 0) {
+                uint8_t *payload = dev.getPayload();
+                size_t plen = dev.getPayloadLength();
+                for (size_t off = 0; off + 1 < plen; ) {
+                    uint8_t len = payload[off];
+                    if (len == 0 || off + len >= plen) break;
+                    uint8_t type = payload[off + 1];
+                    if (type == 0x08 || type == 0x09) {
+                        nameStr = String((const char *)payload + off + 2, len - 1);
+                        break;
+                    }
+                    off += len + 1;
+                }
+            }
+            strncpy(results[count].name, nameStr.length() > 0 ? nameStr.c_str() : results[count].address,
+                    sizeof(results[count].name) - 1);
             results[count].name[sizeof(results[count].name) - 1] = '\0';
-        } else {
-            snprintf(results[count].name, sizeof(results[count].name),
-                     "TC-WL-HDMI-%s", results[count].address + 9);
         }
         count++;
     }
     scan->clearResults();
     return count;
+}
+
+static void masterScanCb(BLEScanResults scanResults) {
+    _scanResultCount = 0;
+    for (int i = 0; i < scanResults.getCount() && _scanResultCount < 16; i++) {
+        BLEAdvertisedDevice dev = scanResults.getDevice(i);
+        if (!dev.haveServiceUUID() || !dev.isAdvertisingService(bleTimecodeServiceUUID))
+            continue;
+        BleScanResult &r = _scanResults[_scanResultCount];
+        BLEAddress addr = dev.getAddress();
+        snprintf(r.address, sizeof(r.address),
+                 "%02x:%02x:%02x:%02x:%02x:%02x",
+                 addr.getNative()[5], addr.getNative()[4],
+                 addr.getNative()[3], addr.getNative()[2],
+                 addr.getNative()[1], addr.getNative()[0]);
+        String nameStr = dev.getName();
+        if (nameStr.length() == 0) {
+            uint8_t *payload = dev.getPayload();
+            size_t plen = dev.getPayloadLength();
+            for (size_t off = 0; off + 1 < plen; ) {
+                uint8_t len = payload[off];
+                if (len == 0 || off + len >= plen) break;
+                uint8_t type = payload[off + 1];
+                if (type == 0x08 || type == 0x09) {
+                    nameStr = String((const char *)payload + off + 2, len - 1);
+                    break;
+                }
+                off += len + 1;
+            }
+        }
+        if (nameStr.length() > 0) {
+            strncpy(r.name, nameStr.c_str(), sizeof(r.name) - 1);
+            r.name[sizeof(r.name) - 1] = '\0';
+        } else {
+            strncpy(r.name, r.address, sizeof(r.name) - 1);
+        }
+        _scanResultCount++;
+    }
+    BLEDevice::getScan()->clearResults();
+    _scanAsyncDone = true;
+    _scanAsyncActive = false;
+}
+
+void bleTimecodeStartScan() {
+    if (bleLtcRole != TCWL_MODE_LTC || _scanAsyncActive) return;
+    _scanResultCount = 0;
+    _scanAsyncDone = false;
+    _scanAsyncActive = true;
+    BLEScan *scan = BLEDevice::getScan();
+    scan->setAdvertisedDeviceCallbacks(nullptr);
+    scan->setActiveScan(true);
+    scan->setInterval(200);
+    scan->setWindow(100);
+    scan->start(2, masterScanCb, false);
+}
+
+bool bleTimecodeScanDone() {
+    return _scanAsyncDone;
+}
+
+uint8_t bleTimecodeScanResults(BleScanResult *results, uint8_t maxResults) {
+    uint8_t n = min(_scanResultCount, maxResults);
+    for (uint8_t i = 0; i < n; i++) results[i] = _scanResults[i];
+    return n;
 }
 
 void bleTimecodeSelect(const char *address) {

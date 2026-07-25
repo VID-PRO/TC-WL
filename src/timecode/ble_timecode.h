@@ -56,6 +56,9 @@ typedef struct {
 } BleScanResult;
 
 uint8_t bleTimecodeScan(BleScanResult *results, uint8_t maxResults);
+void bleTimecodeStartScan();
+bool bleTimecodeScanDone();
+uint8_t bleTimecodeScanResults(BleScanResult *results, uint8_t maxResults);
 void bleTimecodeSelect(const char *address);
 const char *bleTimecodeSelectedAddress();
 const char *bleTimecodeConnectedAddress();

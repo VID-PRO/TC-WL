@@ -94,6 +94,13 @@ static bool _editingTc = false;
 static TcEditField _editField = TC_DD;
 static uint8_t _editVals[5] = {0, 0, 0, 0, 0};
 
+// Master selection state
+static bool _selectingMaster = false;
+static BleScanResult _menuScanResults[16];
+static uint8_t _menuScanCount = 0;
+static uint8_t _menuScanCursor = 0;
+static int8_t _menuScanScroll = 0;
+
 static bool handleRebootDisplay() {
     if (!_pendingReboot) return false;
     unsigned long elapsed = millis() - _rebootTimer;
@@ -523,6 +530,15 @@ static void menuSetTc() {
     _editVals[4] = ltc.ff();
 }
 
+static void menuSelectMaster() {
+    menu.hide();
+    _selectingMaster = true;
+    _menuScanCount = 0;
+    _menuScanCursor = 0;
+    _menuScanScroll = 0;
+    bleTimecodeStartScan();
+}
+
 static void handleTcEditorInput() {
     if (!_editingTc) return;
     if (btnUp.pressed()) {
@@ -556,6 +572,7 @@ static void handleTcEditorInput() {
 #if TCWL_LTC
 static void menuBuildItems() {
     menu.clear();
+    menu.addItem("Master",    nullptr,       menuSelectMaster);
     menu.addItem("FPS",       menuGetFps,    menuCycleFps);
     menu.addItem("DropFr",    menuGetDf,     menuToggleDf);
     menu.addItem("FPS Mode",  menuGetAutoFps,menuToggleAutoFps);
@@ -1252,7 +1269,7 @@ static void ltcLoop() {
 
     if (_editingTc) {
         handleTcEditorInput();
-    } else if (!menu.active()) {
+    } else if (!menu.active() && !_selectingMaster) {
         if (btnUp.pressed() || btnDown.pressed() || btnOk.pressed() || btnCancel.pressed()) {
             menu.show();
         }
@@ -1275,6 +1292,61 @@ static void ltcLoop() {
         menu.hide();
         _pendingReboot = true;
         _rebootTimer = millis();
+    }
+
+    // ── Master selection mode ──
+    if (_selectingMaster) {
+        auto &d = oled.display();
+        if (bleTimecodeScanDone()) {
+            if (_menuScanCount == 0) {
+                _menuScanCount = bleTimecodeScanResults(_menuScanResults, 16);
+            }
+            if (_menuScanCount > 0) {
+                d.clearDisplay();
+                d.setTextSize(1);
+                d.setTextColor(WHITE);
+                uint8_t total = _menuScanCount + 1; // +1 for "Back"
+                for (uint8_t i = 0; i < 4 && (i + _menuScanScroll) < total; i++) {
+                    uint8_t idx = i + _menuScanScroll;
+                    d.setCursor(0, i * 16);
+                    if (idx == _menuScanCursor) d.print("> ");
+                    else d.print("  ");
+                    if (idx < _menuScanCount)
+                        d.print(_menuScanResults[idx].name);
+                    else
+                        d.print("[Back]");
+                }
+                d.display();
+
+                if (btnUp.pressed() && _menuScanCursor > 0) {
+                    _menuScanCursor--;
+                    if (_menuScanCursor < _menuScanScroll) _menuScanScroll--;
+                }
+                if (btnDown.pressed() && _menuScanCursor < total - 1) {
+                    _menuScanCursor++;
+                    if (_menuScanCursor >= _menuScanScroll + 4) _menuScanScroll++;
+                }
+                if (btnOk.released()) {
+                    if (_menuScanCursor < _menuScanCount) {
+                        bleTimecodeSelect(_menuScanResults[_menuScanCursor].address);
+                    }
+                    _selectingMaster = false;
+                    oled.forceRedraw();
+                }
+            }
+        } else {
+            d.clearDisplay();
+            d.setTextSize(2);
+            d.setTextColor(WHITE);
+            d.setCursor(8, 24);
+            d.print("Scan...");
+            d.display();
+        }
+        if (btnCancel.released()) {
+            _selectingMaster = false;
+            oled.forceRedraw();
+        }
+        return; // Skip OLED update below — we drew our own
     }
 #endif
 

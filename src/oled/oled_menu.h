@@ -5,7 +5,7 @@
 #if OLED_ENABLE
 #include "oled_display.h"
 
-#define MENU_MAX_ITEMS 13
+#define MENU_MAX_ITEMS 14
 
 class OledMenu {
 public:
