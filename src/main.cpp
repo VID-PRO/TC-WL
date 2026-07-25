@@ -1451,16 +1451,15 @@ static void ltcLoop() {
                 uint8_t ff = (elapsed * ltc.fps()) / 1000;
                 if (ff >= ltc.fps()) ff = ltc.fps() - 1;
                 ltc.setTime(rtcHH, rtcMM, rtcSS, ff);
-            } else if (bleTimecodeConnected()) {
-                // When synced via BLE, don't tick — the notification callback
-                // sets the authoritative time.  Drain the frame counter to
-                // prevent ISR overflow; the LTC output repeats the last frame.
             } else
 #endif
             {
                 while (frames--) ltc.tick();
             }
         }
+
+        // When BLE connected the timecode notification callback calls
+        // setTime() every frame, correcting any drift from tick().
 
         bleTimecodeUpdate(ltc.dd(), ltc.hh(), ltc.mm(), ltc.ss(), ltc.ff(), bleTimecodeConnected() ? 3 : (rtcPresent ? 2 : 0), ltc.fps(), (webui.autoFps() ? 1 : 0) | (0 << 2), readBatteryPct());
 
