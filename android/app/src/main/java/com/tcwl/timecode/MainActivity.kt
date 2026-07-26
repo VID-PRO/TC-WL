@@ -744,19 +744,6 @@ fun ConfigDrawer(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             textAlign = TextAlign.Center,
         )
-        if (connectionState == ConnectionState.CONNECTED) {
-            val fwVer = deviceState["fw"] ?: ""
-            if (fwVer.isNotEmpty()) {
-                Text(
-                    "FW $fwVer",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-
         Spacer(Modifier.height(16.dp))
     }
 }
