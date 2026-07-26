@@ -1,7 +1,22 @@
 import subprocess
 import os
+import re
 
 Import("env")
+
+
+def get_fw_version():
+    project_dir = env.subst("$PROJECT_DIR")
+    config_h = os.path.join(project_dir, "src", "config.h")
+    try:
+        with open(config_h) as f:
+            for line in f:
+                m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return "?"
 
 
 def build_android(target, source, env):
@@ -20,8 +35,11 @@ def build_android(target, source, env):
 
     print("Building Android app...")
 
+    fw_ver = get_fw_version()
+    print("FW_VERSION = %s" % fw_ver)
+
     java_home = os.environ.get("JAVA_HOME", "")
-    gradle_cmd = [gradlew, "assembleRelease"]
+    gradle_cmd = [gradlew, "assembleRelease", "-PfwVersion=%s" % fw_ver]
     gradle_env = os.environ.copy()
     if java_home:
         gradle_env["JAVA_HOME"] = java_home

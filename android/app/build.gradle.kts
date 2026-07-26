@@ -13,6 +13,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "FW_VERSION", "\"${project.findProperty("fwVersion") ?: "-"}\"")
     }
 
     signingConfigs {
@@ -33,6 +34,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

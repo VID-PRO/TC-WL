@@ -1954,6 +1954,18 @@ void setup() {
                             "|conn_name=%s", addr);
                     }
                 }
+            } else if (bleTimecodePendingConnect()) {
+                const char *name = bleTimecodePendingName();
+                if (name && name[0]) {
+                    n += snprintf(state + n, sizeof(state) - n,
+                        "|conn=1|conn_name=%s", name);
+                } else {
+                    const char *addr = bleTimecodePendingAddress();
+                    if (addr && addr[0]) {
+                        n += snprintf(state + n, sizeof(state) - n,
+                            "|conn=1|conn_name=%s", addr);
+                    }
+                }
             }
             bool scanning = bleTimecodeScanning();
             n += snprintf(state + n, sizeof(state) - n,

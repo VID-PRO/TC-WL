@@ -45,3 +45,6 @@ bool bleTimecodeIsMenuActive() { return false; }
 const char *bleTimecodeSelectedAddress() { return ""; }
 const char *bleTimecodeConnectedAddress() { return ""; }
 const char *bleTimecodeConnectedName() { return ""; }
+bool bleTimecodePendingConnect() { return false; }
+const char *bleTimecodePendingAddress() { return ""; }
+const char *bleTimecodePendingName() { return ""; }

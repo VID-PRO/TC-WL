@@ -18,7 +18,7 @@ Reads Panasonic GH5 timecode from HDMI via TC358743 and regenerates it as SMPTE-
 | **WiFi** | AP on boot; auto-STA connect to saved network; AP re-enables on disconnect |
 | **Reverse-engineer mode** | Dumps InfoFrame packets over serial to find GH5's exact timecode byte layout |
 | **BLE wireless sync** | HDMI advertises timecode via BLE notify; LTC/CLAP scan by service UUID, subscribe to notifications, run local LTC + display |
-| **BLE config** | Android app sends config commands (FPS, brightness, jam, mode, name, restart) over BLE config characteristic `9a6f0004` — no WiFi needed |
+| **BLE config** | Android app sends config commands (FPS, brightness, jam, mode, name, restart, scan, select, disconnect_master) over BLE config characteristic `9a6f0004` — no WiFi needed |
 
 ---
 
@@ -148,7 +148,7 @@ In the Android app's config drawer (bottom-right gear icon):
 
 After saving credentials, the device stores them in NVS and reboots. On restart it connects as STA; if connection fails or the network is unavailable, the AP re-opens after 5 s for reconfiguration.
 
-The config drawer also reads the **device state** from the BLE config characteristic. The response format is `wifi=0|1|ssid=MyNetwork|ip=192.168.1.42|rssi=-65` (pipe-separated key=value pairs), so the app always shows the actual WiFi status, SSID, IP address, and signal strength from the device.
+The config drawer also reads the **device state** from the BLE config characteristic. The response format is `wifi=0|1|ssid=MyNetwork|ip=192.168.1.42|rssi=-65|fw=1.5.2|conn=1|conn_name=TC-WL-HDMI-1234|scanning=0|scan_count=3|scan_name_0=DevA|scan_addr_0=aa:bb:cc:dd:ee:ff...` (pipe-separated key=value pairs), so the app always shows the actual WiFi status, SSID, IP address, signal strength, firmware version, master connection state, and scan results from the device.
 
 ---
 
@@ -302,7 +302,7 @@ A custom 128-bit BLE service (`9a6f0001-...`) transfers timecode from HDMI/LTC t
 |------|------|------------|-------------|
 | `9a6f0002` | Timecode | READ + NOTIFY | 9-byte packet: dd, hh, mm, ss, ff, lockState, fps, flags, batteryPct |
 | `9a6f0003` | Name | WRITE | Peer announces its display name |
-| `9a6f0004` | Config | WRITE + READ | Write ASCII `cmd:value`; read returns `wifi=0|1,ssid=...,ip=...,rssi=...` |
+| `9a6f0004` | Config | WRITE + READ | Write ASCII `cmd:value`; read returns pipe-delimited `key=value` state (wifi, ssid, ip, rssi, fw, conn, conn_name, scanning, scan_count, scan_name_N, scan_addr_N) |
 
 Timecode notification bytes:
 
@@ -320,7 +320,7 @@ Timecode notification bytes:
 
 - **HDMI**: advertises the service, sends a notification on every frame tick via `bleTimecodeUpdate()`. Broadcast name configurable via web UI; disconnect button removes all connected clients. Supports multiple simultaneous BLE connections (e.g. LTC + Android app). Advertising restarts after each connection — the device remains discoverable while connected.
 - **TC-WL-LTC (master)**: same BLE server role as HDMI — receives LTC audio via GPIO 7 decoder, advertises timecode over BLE. No HDMI hardware needed; can act as a standalone LTC-to-BLE bridge for slave units.
-- **LTC (slave)**: scans for devices offering the service, connects, receives timecode. Also advertises its own BLE server with the config characteristic (`9a6f0004`) — the Android app can connect and send config commands (FPS, jam, mode, brightness, etc.) even while the slave is synced to a master. OLED shows a 'B' icon in the top line when the Android app is connected.
+- **LTC (slave)**: scans for devices offering the service, connects, receives timecode. Also advertises its own BLE server with the config characteristic (`9a6f0004`) — the Android app can connect and send config commands (FPS, jam, mode, brightness, master scan/select/disconnect, etc.) even while the slave is synced to a master. OLED shows a 'B' icon in the top line when the Android app is connected.
 - **CLAP**: BLE client only — scans, connects, subscribes to timecode notifications. No server advertising.
 
 LTC hardware runs its own LTC generator, MAX7219 matrix, OLED, web UI, and physical buttons with on-device menu. In master mode it decodes LTC from GPIO 7 and acts as a BLE timecode server; in slave mode it receives timecode via BLE and generates standalone LTC output. CLAP is client-only (no LTC input/output, LED matrix + OLED main screen, no physical buttons). The HDMI board has no MAX7219 hardware and uses the OLED for status display plus a menu system controlled by four physical buttons.
@@ -458,8 +458,10 @@ The `android/` directory contains a Kotlin Compose app that connects to TC-WL de
 | **Brightness (CLAP)** | Slider for MAX7219 matrix intensity (0–15), only visible when connected to CLAP |
 | **Device name** | Change BLE broadcast name |
 | **Restart** | Remote reboot |
-| **Device state** | On connect and after each config command, reads WiFi status/SSID/IP/RSSI from the Config characteristic — WiFi fields reflect the actual device state |
-| **Timecode display** | Shows `--:--:--:--` when disconnected (ignoring empty BLE notifications) |
+| **Master scan/select** | Scan for nearby master devices, tap to connect; disconnect current master; shows master name and connection status |
+| **Device state** | On connect and after each config command, reads WiFi status/SSID/IP/RSSI/FW version/connection state/scan results from the Config characteristic — all fields reflect actual device state |
+| **Timecode display** | Shows `--:--:--:--` when disconnected (ignoring empty BLE notifications); battery/runtime/bottom boxes show dashes when disconnected |
+| **App version** | Displays app version (from `src/config.h` `FW_VERSION`) and firmware version from device state |
 
 Config commands are sent over BLE characteristic `9a6f0004` as ASCII `cmd:value` strings — no WiFi connection required once BLE is paired. The firmware parses the commands and applies them (same logic as the HTTP API).
 
@@ -476,7 +478,7 @@ export JAVA_HOME=/usr/local/opt/openjdk@17
 pio run -t build_android
 ```
 
-The signed release APK is at `android/app/build/outputs/apk/release/TC-WL.apk`.
+The signed release APK is at `android/app/build/outputs/apk/release/TC-WL.apk`. The build reads `FW_VERSION` from `src/config.h` and passes it to Gradle via `-PfwVersion` so the app displays its version as `"App v1.5.2"` (matching the firmware version).
 
 ### Generated files (`.gitignore`)
 

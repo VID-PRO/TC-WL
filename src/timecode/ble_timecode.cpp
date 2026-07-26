@@ -439,6 +439,9 @@ bool bleTimecodeIsMenuActive() { return false; }
 const char *bleTimecodeSelectedAddress() { return ""; }
 const char *bleTimecodeConnectedAddress() { return ""; }
 const char *bleTimecodeConnectedName() { return ""; }
+bool bleTimecodePendingConnect() { return false; }
+const char *bleTimecodePendingAddress() { return ""; }
+const char *bleTimecodePendingName() { return ""; }
 
 // =========================================================================
 // BLE LTC — dual role: LTC-input server ("master") or BLE client ("slave")
@@ -610,6 +613,7 @@ static char ltcBleName[33] = "TC-WL-LTC";
 static bool pendingConnect = false;
 static char pendingAddr[18] = "";
 static char pendingName[33] = "";
+static bool _manualDisconnect = false;
 
 // Scan results for the OLED master-selection menu
 static BleScanResult _scanResults[16];
@@ -680,6 +684,13 @@ static bool tryConnectAddr(const char *addrStr, const char *nameStr) {
     if (nameChar && nameChar->canWrite()) {
         nameChar->writeValue((uint8_t *)ltcBleName, strlen(ltcBleName));
     }
+
+    // Persist successfully-connected address to NVS for boot-time auto-connect.
+    // Done here (main-loop context via bleTimecodePoll) rather than in
+    // bleTimecodeSelect (NimBLE thread) to avoid watchdog issues from SPI flash.
+    blePrefs.begin(NVS_NS, false);
+    blePrefs.putString("hdmi_addr", connectedAddr);
+    blePrefs.end();
     return true;
 }
 
@@ -816,7 +827,7 @@ bool bleTimecodeIsMenuActive() { return _bleMenuActive; }
 
 void bleTimecodePoll() {
     if (bleLtcRole != TCWL_MODE_LTC) return;
-    if (ltcClientConnected || scanDone || _scanAsyncActive || _bleMenuActive) return;
+    if (ltcClientConnected || scanDone || _scanAsyncActive || _bleMenuActive || _manualDisconnect) return;
 
     if (pendingConnect) {
         pendingConnect = false;
@@ -942,7 +953,6 @@ void bleTimecodeStartScan() {
     // discover it (BLE stops advertising once a connection is established).
     if (ltcClient) {
         ltcClient->disconnect();
-        delete ltcClient;
         ltcClient = nullptr;
         ltcRemoteChar = nullptr;
         ltcClientConnected = false;
@@ -952,6 +962,7 @@ void bleTimecodeStartScan() {
     _scanResultCount = 0;
     _scanAsyncDone = false;
     _scanAsyncActive = true;
+    _manualDisconnect = false;
     // Reset auto-connect timer so the next bleTimecodePoll() doesn't race.
     lastScan = 0;
     BLEScan *scan = BLEDevice::getScan();
@@ -981,34 +992,39 @@ void bleTimecodeSelect(const char *address, const char *name) {
     strncpy(selectedAddr, address, sizeof(selectedAddr) - 1);
     selectedAddr[sizeof(selectedAddr) - 1] = '\0';
 
-    blePrefs.begin(NVS_NS, false);
-    blePrefs.putString("hdmi_addr", selectedAddr);
-    blePrefs.end();
-
     if (ltcClient) {
         ltcClient->disconnect();
-        delete ltcClient;
         ltcClient = nullptr;
         ltcRemoteChar = nullptr;
     }
     ltcClientConnected = false;
-    lastScan = 0;
 
-    tryConnectAddr(selectedAddr, name);
+    // Defer connection to bleTimecodePoll() so NimBLE notifications are not
+    // blocked by a synchronous connect on the stack's own thread.
+    strncpy(pendingAddr, address, sizeof(pendingAddr) - 1);
+    pendingAddr[sizeof(pendingAddr) - 1] = '\0';
+    if (name && name[0]) {
+        strncpy(pendingName, name, sizeof(pendingName) - 1);
+        pendingName[sizeof(pendingName) - 1] = '\0';
+    } else {
+        pendingName[0] = '\0';
+    }
+    pendingConnect = true;
+    _manualDisconnect = false;
+    lastScan = 0;
 }
 
 void bleTimecodeDisconnect() {
     if (bleLtcRole != TCWL_MODE_LTC) return;
     if (ltcClient) {
         ltcClient->disconnect();
-        delete ltcClient;
         ltcClient = nullptr;
         ltcRemoteChar = nullptr;
     }
     ltcClientConnected = false;
     connectedAddr[0] = '\0';
     connectedName[0] = '\0';
-    scanDone = false;
+    _manualDisconnect = true;
 }
 
 const char *bleTimecodeSelectedAddress() {
@@ -1021,6 +1037,18 @@ const char *bleTimecodeConnectedAddress() {
 
 const char *bleTimecodeConnectedName() {
     return connectedName;
+}
+
+bool bleTimecodePendingConnect() {
+    return pendingConnect;
+}
+
+const char *bleTimecodePendingAddress() {
+    return pendingAddr;
+}
+
+const char *bleTimecodePendingName() {
+    return pendingName;
 }
 
 void bleTimecodeSetName(const char *name) {
