@@ -124,6 +124,7 @@ fun MainScreen(bleManager: BleManager) {
     var statusMsg by remember { mutableStateOf<String?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val deviceState by bleManager.deviceState.collectAsStateWithLifecycle()
 
     LaunchedEffect(statusMsg) {
         statusMsg?.let {
@@ -190,6 +191,9 @@ fun MainScreen(bleManager: BleManager) {
                 isConnected = connectionState == ConnectionState.CONNECTED,
                 deviceName = if (connectionState == ConnectionState.CONNECTED)
                     bleManager.deviceName.collectAsStateWithLifecycle().value else "TC-WL",
+                masterName = if (connectionState == ConnectionState.CONNECTED) deviceState["conn_name"] else null,
+                wifiConnected = if (connectionState == ConnectionState.CONNECTED)
+                    deviceState["ip"]?.let { it.isNotEmpty() && it != "0.0.0.0" && it != "(null)" } == true else false,
                 onTapTimecode = { showJamDialog = true },
                 modifier = Modifier
                     .fillMaxSize()
@@ -213,7 +217,7 @@ fun MainScreen(bleManager: BleManager) {
 }
 
 @Composable
-fun TimecodeDisplay(timecode: Timecode, deviceName: String = "TC-WL", isConnected: Boolean = true, onTapTimecode: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+fun TimecodeDisplay(timecode: Timecode, deviceName: String = "TC-WL", isConnected: Boolean = true, masterName: String? = null, wifiConnected: Boolean = false, onTapTimecode: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     val isLtcDevice = deviceName.contains("LTC", ignoreCase = true)
     BoxWithConstraints(
         modifier = modifier
@@ -231,24 +235,26 @@ fun TimecodeDisplay(timecode: Timecode, deviceName: String = "TC-WL", isConnecte
                 modifier = Modifier.fillMaxWidth().height(20.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("B", color = Color(0xFF00BCD4), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.width(4.dp))
-                Text("≡", color = Color(0xFF888888), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                Text("B", color = if (isConnected) Color(0xFF00BCD4) else Color(0xFF444444), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                if (wifiConnected) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("≡", color = if (isConnected) Color(0xFF888888) else Color(0xFF444444), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                }
                 Spacer(Modifier.width(4.dp))
                 Text(
                     deviceName,
-                    color = Color(0xFFCCCCCC),
+                    color = if (isConnected) Color(0xFFCCCCCC) else Color(0xFF444444),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                 )
                 Text("[", color = Color(0xFF888888), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                val batFill = if (timecode.batteryPct <= 100) (timecode.batteryPct * 5 / 100) else 0
-                Text("▓".repeat(batFill.coerceIn(0, 5)).padEnd(5, '░'), color = Color(0xFF4CAF50), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                val batFill = if (isConnected && timecode.batteryPct <= 100) (timecode.batteryPct * 5 / 100) else 0
+                Text("▓".repeat(batFill.coerceIn(0, 5)).padEnd(5, '░'), color = if (isConnected) Color(0xFF4CAF50) else Color(0xFF444444), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 Text("]", color = Color(0xFF888888), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 Spacer(Modifier.width(2.dp))
-                Text(timecode.runtimeText, color = Color(0xFF888888), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                Text(if (isConnected) timecode.runtimeText else "--", color = Color(0xFF888888), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             }
 
             // ══ Big timecode ══
@@ -284,19 +290,19 @@ fun TimecodeDisplay(timecode: Timecode, deviceName: String = "TC-WL", isConnecte
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val roleText = if (timecode.isMaster) "MASTER" else "SLAVE"
-                OledBox(text = roleText, color = Color(0xFF00BCD4), width = 72)
-                val lockText = when (timecode.lockState) {
+                val roleText = if (isConnected) if (timecode.isMaster) "MASTER" else "SLAVE" else "---"
+                OledBox(text = roleText, color = if (isConnected) Color(0xFF00BCD4) else Color(0xFF444444), width = 72)
+                val lockText = if (isConnected) when (timecode.lockState) {
                     0 -> "FREE"
                     1 -> if (isLtcDevice) "LTC" else "HDMI"
                     2 -> "RTC"
                     3 -> "BLE"
                     else -> "?"
-                }
-                OledBox(text = lockText, color = Color(0xFFFFAA00), width = 52)
-                OledBox(text = if (timecode.autoFps) "A" else "M", color = Color(0xFFAA66FF), width = 28)
-                OledBox(text = if (timecode.fps > 0) "${timecode.fps}fps" else "--", color = Color(0xFF88CCFF), width = 56)
-                OledBox(text = "LTC-${timecode.ltcModeText}", color = Color(0xFF66DDFF), width = 56)
+                } else "---"
+                OledBox(text = lockText, color = if (isConnected) Color(0xFFFFAA00) else Color(0xFF444444), width = 52)
+                OledBox(text = if (isConnected) if (timecode.autoFps) "A" else "M" else "-", color = if (isConnected) Color(0xFFAA66FF) else Color(0xFF444444), width = 28)
+                OledBox(text = if (isConnected && timecode.fps > 0) "${timecode.fps}fps" else "---", color = if (isConnected) Color(0xFF88CCFF) else Color(0xFF444444), width = 56)
+                OledBox(text = if (isConnected) "LTC-${timecode.ltcModeText}" else "---", color = if (isConnected) Color(0xFF66DDFF) else Color(0xFF444444), width = 56)
             }
         }
     }
@@ -514,7 +520,6 @@ fun ConfigDrawer(
             Divider(modifier = Modifier.padding(vertical = 16.dp))
         }
 
-        if (isLtc) {
             // Master connection — scan, select, disconnect
             Text("Master", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
             Spacer(Modifier.height(8.dp))
@@ -584,7 +589,6 @@ fun ConfigDrawer(
                 }
             }
             Divider(modifier = Modifier.padding(vertical = 16.dp))
-        }
 
         // Device name
         Text("Device Name", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
