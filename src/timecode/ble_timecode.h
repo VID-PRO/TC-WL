@@ -57,6 +57,7 @@ typedef struct {
 
 uint8_t bleTimecodeScan(BleScanResult *results, uint8_t maxResults);
 void bleTimecodeStartScan();
+bool bleTimecodeScanning();
 bool bleTimecodeScanDone();
 uint8_t bleTimecodeScanResults(BleScanResult *results, uint8_t maxResults);
 void bleTimecodeSelect(const char *address, const char *name = nullptr);

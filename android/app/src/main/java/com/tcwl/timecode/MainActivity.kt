@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -422,16 +423,23 @@ fun ConfigDrawer(
         // FPS
         Text("Frame Rate", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
         Spacer(Modifier.height(4.dp))
+        val autoFps = currentTimecode.autoFps
+        val deviceFps = currentTimecode.fps
+        LaunchedEffect(deviceFps) {
+            if (!autoFps && deviceFps in listOf(24, 25, 30, 50, 60)) {
+                selectedFps = deviceFps
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf(24, 25, 30, 50, 60).forEach { fps ->
                 FilterChip(
-                    selected = selectedFps == fps,
+                    selected = if (autoFps) deviceFps == fps else selectedFps == fps,
                     onClick = {
                         selectedFps = fps
                         bleManager.sendConfig("fps", fps.toString())
                         onStatus("FPS set to $fps")
                     },
-                    label = { Text("$fps") }
+                    label = { Text(if (autoFps && deviceFps == fps) "$fps A" else "$fps") }
                 )
             }
         }
@@ -506,6 +514,78 @@ fun ConfigDrawer(
             Divider(modifier = Modifier.padding(vertical = 16.dp))
         }
 
+        if (isLtc) {
+            // Master connection — scan, select, disconnect
+            Text("Master", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
+            Spacer(Modifier.height(8.dp))
+
+            val isConnected = deviceState["conn"] == "1"
+            val connName = deviceState["conn_name"] ?: ""
+            val isScanning = deviceState["scanning"] == "1"
+            val scanCount = deviceState["scan_count"]?.toIntOrNull() ?: 0
+
+            // Poll device state while scan is in progress
+            LaunchedEffect(isScanning) {
+                if (isScanning) {
+                    while (true) {
+                        delay(1000)
+                        bleManager.readState()
+                        val s = bleManager.deviceState.value["scanning"]
+                        if (s != "1") break
+                    }
+                }
+            }
+
+            if (isConnected) {
+                Text("Connected to: $connName", color = Color(0xFF4CAF50), style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { bleManager.sendConfig("disconnect_master", "") },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Disconnect from Master")
+                }
+            } else {
+                Button(
+                    onClick = { bleManager.sendConfig("scan", "") },
+                    enabled = !isScanning,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isScanning) "Scanning..." else "Scan for Masters")
+                }
+
+                if (scanCount > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Devices:", style = MaterialTheme.typography.bodySmall)
+                    for (i in 0 until scanCount) {
+                        val name = deviceState["scan_name_$i"] ?: ""
+                        val addr = deviceState["scan_addr_$i"] ?: ""
+                        if (addr.isNotEmpty()) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clickable {
+                                        bleManager.sendConfig("select", addr)
+                                        onStatus("Connecting to $name...")
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Text(
+                                    "${name.ifEmpty { addr }}\n$addr",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Divider(modifier = Modifier.padding(vertical = 16.dp))
+        }
+
         // Device name
         Text("Device Name", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
         Spacer(Modifier.height(4.dp))
@@ -562,6 +642,13 @@ fun ConfigDrawer(
                     onStatus("WiFi ${if (it) "enabled" else "disabled"}")
                 }
             )
+        }
+
+        // Show IP when connected to WiFi
+        val wifiIp = deviceState["ip"]?.takeIf { it.isNotEmpty() && it != "0.0.0.0" && it != "(null)" }
+        if (wifiEnabled && wifiIp != null) {
+            Spacer(Modifier.height(4.dp))
+            Text("IP: $wifiIp", color = Color(0xFF4CAF50), style = MaterialTheme.typography.bodySmall)
         }
 
         Spacer(Modifier.height(8.dp))

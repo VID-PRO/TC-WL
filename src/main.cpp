@@ -1913,19 +1913,62 @@ void setup() {
                 webui.forgetWifi();
                 return true;
             }
+#if TCWL_LTC
+            if (strcmp(cmd, "scan") == 0) {
+                bleTimecodeStartScan();
+                return true;
+            }
+            if (strcmp(cmd, "select") == 0) {
+                bleTimecodeSelect(val);
+                return true;
+            }
+            if (strcmp(cmd, "disconnect_master") == 0) {
+                bleTimecodeDisconnect();
+                return true;
+            }
+#endif
             return false; // unknown command
         });
 
         // State read callback — return current device state for the Android app
         bleTimecodeSetStateCallback([]() -> const char* {
-            static char state[256];
-            snprintf(state, sizeof(state),
+            static char state[768];
+            int n = snprintf(state, sizeof(state),
                 "wifi=%d|ssid=%s|ip=%s|rssi=%d|fw=%s",
                 webui.wifiEnabled() ? 1 : 0,
                 webui.staSsid(),
                 webui.staIp().toString().c_str(),
                 webui.wifiEnabled() ? static_cast<int>(WiFi.RSSI()) : 0,
                 FW_VERSION);
+            n += snprintf(state + n, sizeof(state) - n,
+                "|conn=%d", bleTimecodeConnected() ? 1 : 0);
+            if (bleTimecodeConnected()) {
+                const char *name = bleTimecodeConnectedName();
+                if (name && name[0]) {
+                    n += snprintf(state + n, sizeof(state) - n,
+                        "|conn_name=%s", name);
+                } else {
+                    const char *addr = bleTimecodeConnectedAddress();
+                    if (addr) {
+                        n += snprintf(state + n, sizeof(state) - n,
+                            "|conn_name=%s", addr);
+                    }
+                }
+            }
+            bool scanning = bleTimecodeScanning();
+            n += snprintf(state + n, sizeof(state) - n,
+                "|scanning=%d", scanning ? 1 : 0);
+            if (bleTimecodeScanDone()) {
+                BleScanResult results[10];
+                uint8_t count = bleTimecodeScanResults(results, 10);
+                n += snprintf(state + n, sizeof(state) - n,
+                    "|scan_count=%d", count);
+                for (uint8_t i = 0; i < count && n < (int)sizeof(state) - 64; i++) {
+                    n += snprintf(state + n, sizeof(state) - n,
+                        "|scan_name_%d=%s|scan_addr_%d=%s",
+                        i, results[i].name, i, results[i].address);
+                }
+            }
             return state;
         });
 #ifdef TCWL_CLAP
