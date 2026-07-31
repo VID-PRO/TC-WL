@@ -12,15 +12,17 @@
 #define OLED_I2C_SDA_PIN   4
 #define OLED_I2C_SCL_PIN   5
 
-// No physical buttons on CLAP
+// OLED menu push-buttons (momentary to GND, internal pull-up enabled)
+// CLAP uses free GPIOs that don't conflict with the MAX7219 matrix (2/3/10),
+// OLED I2C (4/5), battery ADC (0), or LTC out (6).
 #undef BTN_UP_PIN
 #undef BTN_DOWN_PIN
 #undef BTN_OK_PIN
 #undef BTN_CANCEL_PIN
-#define BTN_UP_PIN       -1
-#define BTN_DOWN_PIN     -1
-#define BTN_OK_PIN       -1
-#define BTN_CANCEL_PIN   -1
+#define BTN_UP_PIN       1
+#define BTN_DOWN_PIN     7
+#define BTN_OK_PIN       8
+#define BTN_CANCEL_PIN   9
 
 // Battery ADC on GPIO 0 (ADC1_CH0), 200k:200k divider, 2000mAh LiPo
 #undef BAT_ADC_PIN

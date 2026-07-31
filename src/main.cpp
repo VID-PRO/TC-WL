@@ -1541,12 +1541,12 @@ static void ltcLoop() {
             {
                 while (frames--) ltc.tick();
             }
+
+            // Send BLE notification at frame rate only — calling this on every
+            // loop iteration floods the NimBLE host and exhausts the mbuf pool
+            // when a subscriber (e.g. the Android app) is connected.
+            bleTimecodeUpdate(ltc.dd(), ltc.hh(), ltc.mm(), ltc.ss(), ltc.ff(), bleTimecodeConnected() ? 3 : (rtcPresent ? 2 : 0), ltc.fps(), (webui.autoFps() ? 1 : 0) | (0 << 2), readBatteryPct());
         }
-
-        // When BLE connected the timecode notification callback calls
-        // setTime() every frame, correcting any drift from tick().
-
-        bleTimecodeUpdate(ltc.dd(), ltc.hh(), ltc.mm(), ltc.ss(), ltc.ff(), bleTimecodeConnected() ? 3 : (rtcPresent ? 2 : 0), ltc.fps(), (webui.autoFps() ? 1 : 0) | (0 << 2), readBatteryPct());
 
 #if OLED_ENABLE
         if (drawTcEditor()) {
