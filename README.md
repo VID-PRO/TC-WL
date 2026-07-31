@@ -13,7 +13,7 @@ Reads Panasonic GH5 timecode from HDMI via TC358743 and regenerates it as SMPTE-
 | **Frame rates** | Auto-detected from HDMI (24/25/30/50/60 fps) or manual via web UI |
 | **RTC fallback** | HDMI uses ESP32-P4 internal RTC (synced by HDMI timecode); LTC/CLAP use optional external DS3231 — both with frame interpolation |
 | **LED matrix (CLAP)** | 8 daisy-chained MAX7219 8×8 modules (64×8 px), software SPI; runtime toggle in web UI; not available on HDMI or LTC (GPIO conflict with buttons) |
-| **OLED display (optional)** | 128×64 SSD1306 on shared I2C bus: device name, battery gauge + runtime, big timecode, 5 bottom boxes (MASTER/SLAVE, lock state, A/M, fps, LTC mode) — controlled via 4 physical buttons on HDMI/LTC; CLAP main screen only (no buttons) |
+| **OLED display (optional)** | 128×64 SSD1306 on shared I2C bus: device name, battery gauge + runtime, big timecode, 5 bottom boxes (MASTER/SLAVE, lock state, A/M, fps, LTC mode) — controlled via 4 physical buttons on HDMI/LTC/CLAP |
 | **Web UI** | Fullscreen dark-teal SPA: timecode display, Auto/fixed FPS config, jam sync, brightness slider, matrix on/off, WiFi config |
 | **WiFi** | AP on boot; auto-STA connect to saved network; AP re-enables on disconnect |
 | **Reverse-engineer mode** | Dumps InfoFrame packets over serial to find GH5's exact timecode byte layout |
@@ -60,10 +60,10 @@ Reads Panasonic GH5 timecode from HDMI via TC358743 and regenerates it as SMPTE-
 | **LTC output** | GPIO 6 | GPIO 6 | GPIO 6 |
 | **LTC input (master)** | — | GPIO 7 | — |
 | **Battery ADC (LiPo)** | GPIO 20 (ADC1_CH4)² | GPIO 0 (A0) | GPIO 0 (A0) |
-| **Button UP** | GPIO 27 | GPIO 8 | — |
-| **Button DOWN** | GPIO 32 | GPIO 9 | — |
-| **Button OK** | GPIO 33 | GPIO 2 | — |
-| **Button CANCEL** | GPIO 46 | GPIO 3 | — |
+| **Button UP** | GPIO 27 | GPIO 8 | GPIO 1 |
+| **Button DOWN** | GPIO 32 | GPIO 9 | GPIO 7 |
+| **Button OK** | GPIO 33 | GPIO 2 | GPIO 8 |
+| **Button CANCEL** | GPIO 46 | GPIO 3 | GPIO 9 |
 | **TC358743 reset** | GPIO 4 (CSI CE pin) | — | — |
 | **CSI connector** | 22-pin to TC358743 | — | — |
 
@@ -78,7 +78,7 @@ Reads Panasonic GH5 timecode from HDMI via TC358743 and regenerates it as SMPTE-
 | Env | Board | Role | BLE | Platform |
 |-----|-------|------|-----|----------|
 | `TC-WL-LTC` | Seeed Studio XIAO ESP32-C3 | Dual-role: master (BLE server + LTC input) or slave (BLE client + LTC output), OLED + RTC, physical buttons, OLED menu; MAX7219 matrix not supported (GPIO conflict with buttons) | ✓ (native C3) | `pioarduino/platform-espressif32`† |
-| `TC-WL-CLAP` | ESP32-C3 Super Mini | BLE client, LED matrix + OLED, no physical buttons | ✓ (native C3) | `pioarduino/platform-espressif32`† |
+| `TC-WL-CLAP` | ESP32-C3 Super Mini | BLE client, LED matrix + OLED, physical buttons + OLED menu | ✓ (native C3) | `pioarduino/platform-espressif32`† |
 | `TC-WL-HDMI` | ESP32-P4-WIFI6 | HDMI receiver, BLE server (multi-connection), physical buttons + OLED menu | via C6 coprocessor‡ (ESP-Hosted SDIO) | `pioarduino/platform-espressif32`† |
 
 † Pinned to GitHub: `https://github.com/pioarduino/platform-espressif32.git` (needed for ESP32-P4 `esp_timer` API compatibility; also used by LTC/CLAP for consistency)
@@ -180,12 +180,12 @@ Open `http://192.168.4.1` (AP mode) or the ESP's STA IP. The header displays a c
 | FPS | Auto (re-detect) | Auto (re-detect†) | Auto (re-detect†) |
 | Drop frame | Off | Off | Off |
 | RTC | Internal (ESP32-P4), no external chip needed | Optional (DS3231) | Optional (DS3231) |
-| OLED | Optional (SSD1306) | Optional (SSD1306) | Optional (SSD1306) — main screen only (no buttons) |
+| OLED | Optional (SSD1306) | Optional (SSD1306) | Optional (SSD1306) |
 | MAX7219 matrix | Disabled (no hardware) | Disabled (no hardware) | Enabled by default |
 | Matrix brightness | N/A | N/A | 4 |
 | LTC output pin | GPIO6 | GPIO6 | GPIO6 |
 | LTC input pin (master) | — | GPIO7 | — |
-| Physical buttons + OLED menu | GPIO 10/9/2/3 (UP/DOWN/OK/CANCEL) | GPIO 8/9/2/3 (UP/DOWN/OK/CANCEL) | — |
+| Physical buttons + OLED menu | GPIO 10/9/2/3 (UP/DOWN/OK/CANCEL) | GPIO 8/9/2/3 (UP/DOWN/OK/CANCEL) | GPIO 1/7/8/9 (UP/DOWN/OK/CANCEL) |
 | TC_RESET_PIN | `4` | — | — |
 | Reverse-engineer mode | 0 (set to 1 in `config_tcwl_hdmi.h`) | — | — |
 | BLE role | Server (advertise + notify) | Configurable: master (server + LTC input) or slave (client + LTC output) | Client (scan + subscribe) |
@@ -219,13 +219,13 @@ The 128×64 SSD1306 display is organized in three fixed zones (HDMI, LTC, and CL
 * **Box 4 (56 px):** Framerate — `24fps`, `25fps`, `30fps`, `50fps`, `60fps`
 * **Box 5 (56 px):** LTC mode — `LTC-O` (OUT), `LTC-I` (IN), `LTC-B` (BOTH)
 
-### OLED Menu (HDMI & LTC only)
+### OLED Menu (HDMI, LTC & CLAP)
 
 A 4-button menu (UP/DOWN/OK/CANCEL) overlays the main screen when any button is pressed. The menu title is `SETTINGS`. Inactive for 15 s it auto-closes. Item values are right-aligned. Scroll arrows (▲/▼) are drawn with `fillTriangle()` on the right side when the list overflows.
 
 Reboot flow: pressing OK on **Mode** or **LTC Role** shows the new value for 2 s, then a centered **REBOOT** screen for 500 ms, then `ESP.restart()`.
 
-**LTC menu** — each item shows a value on the right; OK cycles/toggles; long‑OK on items marked † restarts:
+**LTC menu** (also used by CLAP) — each item shows a value on the right; OK cycles/toggles; long‑OK on items marked † restarts:
 
 ```
  SETTINGS
@@ -321,9 +321,11 @@ Timecode notification bytes:
 - **HDMI**: advertises the service, sends a notification on every frame tick via `bleTimecodeUpdate()`. Broadcast name configurable via web UI; disconnect button removes all connected clients. Supports multiple simultaneous BLE connections (e.g. LTC + Android app). Advertising restarts after each connection — the device remains discoverable while connected.
 - **TC-WL-LTC (master)**: same BLE server role as HDMI — receives LTC audio via GPIO 7 decoder, advertises timecode over BLE. No HDMI hardware needed; can act as a standalone LTC-to-BLE bridge for slave units.
 - **LTC (slave)**: scans for devices offering the service, connects, receives timecode. Also advertises its own BLE server with the config characteristic (`9a6f0004`) — the Android app can connect and send config commands (FPS, jam, mode, brightness, master scan/select/disconnect, etc.) even while the slave is synced to a master. OLED shows a 'B' icon in the top line when the Android app is connected.
-- **CLAP**: BLE client only — scans, connects, subscribes to timecode notifications. No server advertising.
+- **CLAP**: BLE client only for timecode (scans, connects, subscribes to notifications), but like the LTC slave it also advertises its own BLE server with the config characteristic (`9a6f0004`) so the Android app can connect and configure it.
 
-LTC hardware runs its own LTC generator, MAX7219 matrix, OLED, web UI, and physical buttons with on-device menu. In master mode it decodes LTC from GPIO 7 and acts as a BLE timecode server; in slave mode it receives timecode via BLE and generates standalone LTC output. CLAP is client-only (no LTC input/output, LED matrix + OLED main screen, no physical buttons). The HDMI board has no MAX7219 hardware and uses the OLED for status display plus a menu system controlled by four physical buttons.
+Server-side notifications (HDMI master, LTC master, and LTC/CLAP to the Android app) are sent at frame rate only — `bleTimecodeUpdate()` is throttled to when the timecode actually advances. Calling it on every loop iteration floods the NimBLE host and exhausts its mbuf pool, producing `ble_gatts_notify_custom: rc=6` (BLE_HS_ENOMEM).
+
+LTC hardware runs its own LTC generator, MAX7219 matrix, OLED, web UI, and physical buttons with on-device menu. In master mode it decodes LTC from GPIO 7 and acts as a BLE timecode server; in slave mode it receives timecode via BLE and generates standalone LTC output. CLAP is client-only (no LTC input/output) with LED matrix, OLED, and a physical-button OLED menu (GPIO 1/7/8/9). On boot the CLAP initializes the matrix first, applies the saved brightness, clears it, and shows a `TC-WL-CLAP` splash while the rest of the system boots. The HDMI board has no MAX7219 hardware and uses the OLED for status display plus a menu system controlled by four physical buttons.
 
 ---
 
