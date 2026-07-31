@@ -1234,16 +1234,19 @@ static void ltcSetup() {
 #endif
 
 #if MAX7219_ENABLE
+#ifdef TCWL_CLAP
+    // Already initialized at the top of setup() — only (re)apply brightness,
+    // which now reflects the NVS value loaded by WebUI::begin().
+    mx7219.setIntensity(webui.brightness());
+    if (!webui.matrixEnabled()) mx7219.clear();
+#else
     mx7219.begin();
     mx7219.setIntensity(webui.brightness());
     if (webui.matrixEnabled()) {
-#if TCWL_CLAP
-        mx7219.showText("TC-WL-CLAP");
-#else
         mx7219.showText("TC-WL-LTC");
-#endif
         delay(2000);
     }
+#endif
     Serial.println(F("MAX7219 started"));
 #endif
 
@@ -1605,6 +1608,21 @@ void setup() {
     delay(2000);
     printResetReason();
     initBatteryAdc();
+
+    // TC-WL-CLAP: initialize the LED matrix, apply saved brightness, clear it,
+    // then show the splash while the rest of the system boots.
+#if MAX7219_ENABLE && defined(TCWL_CLAP)
+    {
+        Preferences prefs;
+        prefs.begin("webui", false);
+        uint8_t brightness = prefs.getUChar("brightness", 4);
+        prefs.end();
+        mx7219.begin();
+        mx7219.setIntensity(brightness);
+        mx7219.clear();
+        mx7219.showText("TC-WL-CLAP");
+    }
+#endif
 
     Wire.setPins(TC_I2C_SDA_PIN, TC_I2C_SCL_PIN);
 
