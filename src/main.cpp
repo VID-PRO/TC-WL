@@ -2,6 +2,8 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include "esp_system.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
 #include <Preferences.h>
 #include <esp_efuse.h>
 #include <esp_mac.h>
@@ -491,6 +493,53 @@ static void menuToggleWifi()   { webui.setWifiEnabled(!webui.wifiEnabled()); }
 static void menuExit()         { menu.hide(); oled.forceRedraw(); }
 static void menuRestart()      { menu.hide(); _pendingReboot = true; _rebootTimer = millis(); }
 
+// Sleep: power everything off. LTC/CLAP use deep sleep (OK is an RTC/LP GPIO
+// on the C3); HDMI uses light sleep since its buttons are plain MIO pins.
+static void menuSleep() {
+    menu.hide();
+#if OLED_ENABLE
+    oled.setEnabled(false);
+    oled.forceRedraw();
+    oled.display().clearDisplay();
+    oled.display().ssd1306_command(SSD1306_DISPLAYOFF);
+    oled.display().display();
+#endif
+#if MAX7219_ENABLE
+    mx7219.clear();
+#endif
+#if WEBUI_ENABLE
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+#endif
+#if defined(BTN_OK_PIN) && BTN_OK_PIN >= 0
+    pinMode(BTN_OK_PIN, INPUT_PULLUP);
+    gpio_pullup_en((gpio_num_t)BTN_OK_PIN);
+#endif
+#if TCWL_HDMI
+    gpio_wakeup_enable((gpio_num_t)BTN_OK_PIN, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    Serial.println(F("Entering light sleep..."));
+    esp_light_sleep_start();
+    Serial.println(F("Woke up"));
+#if OLED_ENABLE
+    oled.setEnabled(true);
+    oled.display().ssd1306_command(SSD1306_DISPLAYON);
+    oled.forceRedraw();
+#endif
+#if WEBUI_ENABLE
+    if (webui.wifiEnabled()) webui.setWifiEnabled(true);
+#endif
+#else
+#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+    esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_OK_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+#else
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_OK_PIN, 0);
+#endif
+    Serial.println(F("Entering deep sleep..."));
+    esp_deep_sleep_start();
+#endif
+}
+
 #if TCWL_LTC
 // ── LTC-specific menu helpers ─────────────────────────────────
 static const char* menuGetMode() {
@@ -598,6 +647,7 @@ static void menuBuildItems() {
     menu.addItem("OLED",      menuGetOled,   menuToggleOled);
     menu.addItem("Matrix",    menuGetMatrix, menuToggleMatrix);
     menu.addItem("Bright",    menuGetBright, menuCycleBright);
+    menu.addItem("Sleep",     nullptr,       menuSleep);
     menu.addItem("Restart",   nullptr,       menuRestart);
     menu.addItem("Exit",      nullptr,       menuExit);
     menu.setTimeout(15000);
@@ -614,6 +664,7 @@ static void menuBuildItems() {
     menu.addItem("LTC Out",   menuGetLtcOut, menuToggleLtcOut);
     menu.addItem("WiFi",      menuGetWifi,   menuToggleWifi);
     menu.addItem("OLED",      menuGetOled,   menuToggleOled);
+    menu.addItem("Sleep",     nullptr,       menuSleep);
     menu.addItem("Restart",   nullptr,       menuRestart);
     menu.addItem("Exit",      nullptr,       menuExit);
     menu.setTimeout(15000);
